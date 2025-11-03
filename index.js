@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
-import fetch from "node-fetch"; // ✅ Proper import for Node 18+
+import fetch from "node-fetch";
 
 dotenv.config();
 
