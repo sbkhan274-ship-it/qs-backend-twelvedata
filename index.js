@@ -22,9 +22,9 @@ if (!TWELVE_KEY) {
   console.warn('⚠️ Warning: TWELVE_API_KEY not set in environment. Using fallback key.');
 }
 
-// ---- Simple in-memory cache (5 seconds) ----
+// ---- Simple in-memory cache (60 seconds) ----
 const cache = {};
-const CACHE_TTL = 5 * 1000;
+const CACHE_TTL = 60 * 1000;
 
 function setCache(key, data) {
   cache[key] = { ts: Date.now(), data };
@@ -41,7 +41,7 @@ function getCache(key) {
 
 // ---- TwelveData fetcher ----
 async function fetchFromTwelve(symbol, interval = '1min', outputsize = 100) {
-  const cleanSymbol = symbol.replace('/', '').replace(/\s+/g, '').toUpperCase();
+  const cleanSymbol = symbol.replaceAll('/', '').replace(/\s+/g, '').toUpperCase();
   const base = 'https://api.twelvedata.com/time_series';
   const params = new URLSearchParams({
     symbol: cleanSymbol,
@@ -80,7 +80,7 @@ app.get('/api/candles', async (req, res) => {
     const interval = (req.query.interval || '1min').toString();
     const limit = parseInt(req.query.limit || '100', 10);
 
-    const cleanSymbol = rawSymbol.replace('/', '').replace(/\s+/g, '').toUpperCase();
+    const cleanSymbol = rawSymbol.replaceAll('/', '').replace(/\s+/g, '').toUpperCase();
     const cacheKey = `${cleanSymbol}|${interval}|${limit}`;
 
     const cached = getCache(cacheKey);
