@@ -8,20 +8,21 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Rate limiter
-const limiter = rateLimit({
+// ---- Rate limiter (60 requests/minute per IP) ----
+app.use(rateLimit({
   windowMs: 60 * 1000,
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-});
-app.use(limiter);
+}));
 
-const TWELVE_KEY = process.env.TWELVE_API_KEY;
+// ---- TwelveData API Key ----
+const TWELVE_KEY = process.env.TWELVE_API_KEY || 'f7c98b751b264bf9a8b7d47c57864f18';
 if (!TWELVE_KEY) {
-  console.warn('Warning: TWELVE_API_KEY not set in environment. Set it before deploying.');
+  console.warn('⚠️ Warning: TWELVE_API_KEY not set in environment. Using fallback key.');
 }
 
+// ---- Simple in-memory cache (5 seconds) ----
 const cache = {};
 const CACHE_TTL = 5 * 1000;
 
@@ -38,57 +39,64 @@ function getCache(key) {
   return v.data;
 }
 
+// ---- TwelveData fetcher ----
 async function fetchFromTwelve(symbol, interval = '1min', outputsize = 100) {
+  const cleanSymbol = symbol.replace('/', '').replace(/\s+/g, '').toUpperCase();
   const base = 'https://api.twelvedata.com/time_series';
   const params = new URLSearchParams({
-    symbol: symbol.replace('/', ''),
+    symbol: cleanSymbol,
     interval,
     outputsize: String(outputsize),
     apikey: TWELVE_KEY,
     format: 'JSON',
   });
   const url = `${base}?${params.toString()}`;
+
   const res = await fetch(url, { timeout: 10000 });
-  if (!res.ok) throw new Error(`TwelveData fetch failed: ${res.status}`);
   const json = await res.json();
-  if (json && json.status === 'error') throw new Error(json.message || 'TwelveData error');
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  if (json.status === 'error') throw new Error(json.message || 'TwelveData API error');
+
   return json;
 }
 
-function formatCandlesFromTwelve(twResp) {
-  if (!twResp) return null;
-  const arr = twResp.values || [];
-  const mapped = arr.map((v) => ({
+// ---- Candle Formatter ----
+function formatCandlesFromTwelve(resp) {
+  if (!resp || !resp.values) return [];
+  return resp.values.map(v => ({
     open: parseFloat(v.open),
     high: parseFloat(v.high),
     low: parseFloat(v.low),
     close: parseFloat(v.close),
     datetime: v.datetime || v.timestamp,
   })).reverse();
-  return mapped;
 }
 
+// ---- GET /api/candles ----
 app.get('/api/candles', async (req, res) => {
   try {
     const rawSymbol = (req.query.symbol || 'EURUSD').toString();
-    const cleanSymbol = rawSymbol.replace(/\s+/g, '').replace('/', '').toUpperCase(); // ✅ clean symbol
     const interval = (req.query.interval || '1min').toString();
     const limit = parseInt(req.query.limit || '100', 10);
 
+    const cleanSymbol = rawSymbol.replace('/', '').replace(/\s+/g, '').toUpperCase();
     const cacheKey = `${cleanSymbol}|${interval}|${limit}`;
+
     const cached = getCache(cacheKey);
-    if (cached) return res.json({ candles: cached });
+    if (cached) return res.json({ candles: cached, cached: true });
 
     const tw = await fetchFromTwelve(cleanSymbol, interval, limit);
     const candles = formatCandlesFromTwelve(tw);
-    if (!candles || candles.length === 0)
-      return res.status(502).json({ error: 'No candles from provider' });
 
-    const trimmed = candles.slice(-limit);
-    setCache(cacheKey, trimmed);
-    return res.json({ candles: trimmed });
+    if (!candles.length) {
+      return res.status(502).json({ error: 'No candles from provider', symbol: cleanSymbol });
+    }
+
+    setCache(cacheKey, candles);
+    return res.json({ candles });
   } catch (err) {
-    console.error('candles error', err && err.message ? err.message : err);
+    console.error('❌ candles error:', err.message);
     return res.status(500).json({
       error: 'Failed to fetch candles',
       detail: err.message || String(err),
@@ -96,6 +104,7 @@ app.get('/api/candles', async (req, res) => {
   }
 });
 
+// ---- Optional: simulateOutcome (for testing) ----
 app.get('/api/simulateOutcome', (req, res) => {
   const conf = parseInt(req.query.conf || '70', 10) || 70;
   const seeded = (Date.now() + conf * 13) % 100;
@@ -103,12 +112,14 @@ app.get('/api/simulateOutcome', (req, res) => {
   return res.json({ result });
 });
 
+// ---- Webhook endpoint ----
 app.post('/webhook/signal', (req, res) => {
   console.log('Received webhook:', req.body);
   res.json({ ok: true });
 });
 
+// ---- Start server ----
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`QS backend listening on port ${PORT}`);
+  console.log(`✅ QS Backend running at http://localhost:${PORT}`);
 });
