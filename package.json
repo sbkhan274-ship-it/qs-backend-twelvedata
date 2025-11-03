@@ -1,17 +1,21 @@
 {
-  "name": "quotex-backend",
+  "name": "quantum-scalper-backend",
   "version": "1.0.0",
-  "description": "Quotex Signal Backend using TwelveData API",
-  "main": "index.js",
   "type": "module",
+  "description": "Trading backend for Quantum Scalper",
+  "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node --watch index.js"
   },
   "dependencies": {
+    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "express-rate-limit": "^8.2.1",
-    "node-fetch": "^3.3.2"
-  }
+    "express-rate-limit": "^6.7.0",
+    "dotenv": "^16.0.3",
+    "node-fetch": "^3.3.0"
+  },
+  "keywords": ["trading", "api", "backend"],
+  "author": "Quantum Scalper",
+  "license": "MIT"
 }
