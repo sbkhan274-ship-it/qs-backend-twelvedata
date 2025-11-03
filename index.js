@@ -3,6 +3,8 @@ import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
+
+// node-fetch import karo
 import fetch from "node-fetch";
 
 dotenv.config();
@@ -12,7 +14,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Rate limiter (avoid spam)
+// Rate limiter
 app.use(
   rateLimit({
     windowMs: 60 * 1000,
@@ -23,14 +25,11 @@ app.use(
 );
 
 // ====== API KEY ======
-const TWELVE_KEY = process.env.TWELVE_API_KEY || "f7c98b751b264bf9a8b7d47c57864f18";
-if (!TWELVE_KEY) {
-  console.warn("⚠️ Warning: TWELVE_API_KEY not set in environment. Using fallback key.");
-}
+const TWELVE_KEY = "f7c98b751b264bf9a8b7d47c57864f18"; // Your key directly
 
-// ====== CACHE ======
+// ====== SIMPLE CACHE ======
 const cache = {};
-const CACHE_TTL = 60 * 1000; // 1 minute cache
+const CACHE_TTL = 60 * 1000; // 1 minute
 
 function setCache(key, data) {
   cache[key] = { ts: Date.now(), data };
@@ -59,6 +58,8 @@ async function fetchFromTwelve(symbol, interval = "1min", outputsize = 100) {
   });
 
   const url = `${base}?${params.toString()}`;
+  console.log("🔗 Fetching:", url);
+  
   const res = await fetch(url, { timeout: 10000 });
   const json = await res.json();
 
@@ -83,6 +84,26 @@ function formatCandlesFromTwelve(resp) {
 }
 
 // ====== ROUTES ======
+app.get("/", (req, res) => {
+  res.json({ 
+    message: "✅ Quantum Scalper Backend Running!",
+    endpoints: {
+      candles: "/api/candles?symbol=EURUSD&interval=1min&limit=100",
+      simulate: "/api/simulateOutcome?conf=70",
+      webhook: "POST /webhook/signal",
+      health: "/health"
+    }
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.json({ 
+    status: "OK", 
+    timestamp: new Date().toISOString(),
+    cacheSize: Object.keys(cache).length
+  });
+});
+
 app.get("/api/candles", async (req, res) => {
   try {
     const rawSymbol = (req.query.symbol || "EURUSD").toString();
@@ -92,22 +113,36 @@ app.get("/api/candles", async (req, res) => {
     const cleanSymbol = rawSymbol.replaceAll("/", "").replace(/\s+/g, "").toUpperCase();
     const cacheKey = `${cleanSymbol}|${interval}|${limit}`;
 
+    // Cache check
     const cached = getCache(cacheKey);
-    if (cached) return res.json({ candles: cached, cached: true });
+    if (cached) {
+      console.log("📦 Serving from cache:", cacheKey);
+      return res.json({ candles: cached, cached: true });
+    }
 
+    console.log("🔄 Fetching fresh data:", cacheKey);
     const tw = await fetchFromTwelve(cleanSymbol, interval, limit);
     const candles = formatCandlesFromTwelve(tw);
 
-    if (!candles.length)
-      return res.status(502).json({ error: "No candles from provider", symbol: cleanSymbol });
+    if (!candles.length) {
+      return res.status(502).json({ 
+        error: "No candles from provider", 
+        symbol: cleanSymbol 
+      });
+    }
 
     setCache(cacheKey, candles);
-    return res.json({ candles });
+    res.json({ 
+      candles,
+      symbol: cleanSymbol,
+      count: candles.length 
+    });
+    
   } catch (err) {
-    console.error("❌ candles error:", err.message);
-    return res.status(500).json({
+    console.error("❌ Candles error:", err.message);
+    res.status(500).json({
       error: "Failed to fetch candles",
-      detail: err.message || String(err),
+      detail: err.message
     });
   }
 });
@@ -116,16 +151,28 @@ app.get("/api/simulateOutcome", (req, res) => {
   const conf = parseInt(req.query.conf || "70", 10) || 70;
   const seeded = (Date.now() + conf * 13) % 100;
   const result = seeded <= conf ? "WIN" : "LOSS";
-  return res.json({ result });
+  
+  res.json({ 
+    result,
+    confidence: conf,
+    randomValue: seeded 
+  });
 });
 
 app.post("/webhook/signal", (req, res) => {
-  console.log("Received webhook:", req.body);
-  res.json({ ok: true });
+  console.log("📡 Received webhook:", req.body);
+  res.json({ 
+    ok: true,
+    message: "Signal received",
+    timestamp: new Date().toISOString()
+  });
 });
 
 // ====== SERVER START ======
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ QS Backend running at http://localhost:${PORT}`);
+  console.log(`🚀 Quantum Scalper Backend Started!`);
+  console.log(`📍 Port: http://localhost:${PORT}`);
+  console.log(`🔑 API Key: ${TWELVE_KEY.substring(0, 10)}...`);
+  console.log(`📊 Test: http://localhost:${PORT}/api/candles?symbol=EURUSD`);
 });
